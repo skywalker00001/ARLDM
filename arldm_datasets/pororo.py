@@ -34,9 +34,9 @@ class StoryDataset(Dataset):
         self.clip_tokenizer = CLIPTokenizer.from_pretrained('runwayml/stable-diffusion-v1-5', subfolder="tokenizer")
         self.blip_tokenizer = init_tokenizer()
         msg = self.clip_tokenizer.add_tokens(list(args.get(args.dataset).new_tokens))
-        print("clip {} new tokens added".format(msg))
+        print("clip {} new tokens added to {}".format(msg, subset))
         msg = self.blip_tokenizer.add_tokens(list(args.get(args.dataset).new_tokens))
-        print("blip {} new tokens added".format(msg))
+        print("blip {} new tokens added to {}".format(msg, subset))
 
         self.blip_image_processor = transforms.Compose([
             transforms.ToPILImage(),
@@ -57,7 +57,7 @@ class StoryDataset(Dataset):
         for i in range(5):
             im = self.h5['image{}'.format(i)][index]
             im = cv2.imdecode(im, cv2.IMREAD_COLOR)
-            idx = random.randint(0, 4)
+            idx = random.randint(0, im.shape[0] / 128 - 1)
             images.append(im[idx * 128: (idx + 1) * 128])
 
         source_images = torch.stack([self.blip_image_processor(im) for im in images])

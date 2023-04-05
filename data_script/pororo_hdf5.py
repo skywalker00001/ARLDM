@@ -13,9 +13,15 @@ def main(args):
     imgs_list = np.load(os.path.join(args.data_dir, 'img_cache4.npy'), encoding='latin1')
     followings_list = np.load(os.path.join(args.data_dir, 'following_cache4.npy'))
     train_ids, val_ids, test_ids = np.load(os.path.join(args.data_dir, 'train_seen_unseen_ids.npy'), allow_pickle=True)
-    train_ids = np.sort(train_ids)
-    val_ids = np.sort(val_ids)
-    test_ids = np.sort(test_ids)
+    train_ids = np.sort(train_ids) # 10191
+    val_ids = np.sort(val_ids)  # 2334
+    test_ids = np.sort(test_ids) # 2208
+
+    if (args.use_subset):
+        train_ids = train_ids[:len(train_ids)//4]
+        print("Using a subset of training set, the size is : ", len(train_ids))
+        #val_ids = val_ids[:1000]
+        #test_ids = test_ids[:1000]
 
     f = h5py.File(args.save_path, "w")
     for subset, ids in {'train': train_ids, 'val': val_ids, 'test': test_ids}.items():
@@ -45,5 +51,18 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='arguments for flintstones pororo file saving')
     parser.add_argument('--data_dir', type=str, required=True, help='pororo data directory')
     parser.add_argument('--save_path', type=str, required=True, help='path to save hdf5')
+    parser.add_argument('--use_subset', action='store_true', help='use subset of data')
     args = parser.parse_args()
     main(args)
+
+
+# unzip original_datasets/pororo.zip -d original_datasets/
+
+'''
+nohup python data_script/pororo_hdf5.py --data_dir ./original_datasets/pororo_png --save_path ./processed_datasets/pororo.h5 > pororo.log 2>&1 &
+
+
+python data_script/pororo_hdf5.py --data_dir ./original_datasets/pororo_png --save_path ./processed_subsets/pororo_1_4.h5 --use_subset
+
+nohup command | tee output.log &
+'''

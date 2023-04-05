@@ -1,8 +1,4 @@
-# my implementation, using 8-bit optimizer
-# my edited verision 1.0
-# author: Hou Yi
-# Date: 2023-03-30
-# /home/houyi/.cache/huggingface/diffusers/models--runwayml--stable-diffusion-v1-5 .   local model
+# this is from the author
 
 import inspect
 import os
@@ -19,7 +15,6 @@ from omegaconf import DictConfig
 from pl_bolts.optimizers.lr_scheduler import LinearWarmupCosineAnnealingLR
 from pytorch_lightning.callbacks import ModelCheckpoint, LearningRateMonitor
 from pytorch_lightning.loggers import TensorBoardLogger
-# WandbLogger
 from pytorch_lightning.strategies import DDPStrategy
 from torch import nn
 from torch.utils.data import DataLoader
@@ -30,9 +25,7 @@ from fid_utils import calculate_fid_given_features
 from models.blip_override.blip import blip_feature_extractor, init_tokenizer
 from models.diffusers_override.unet_2d_condition import UNet2DConditionModel
 from models.inception import InceptionV3
-import bitsandbytes as bnb
 
-# env: arldm3
 
 class LightningDataset(pl.LightningDataModule):
     def __init__(self, args: DictConfig):
@@ -43,13 +36,13 @@ class LightningDataset(pl.LightningDataModule):
 
     def setup(self, stage="fit"):
         if self.args.dataset == "pororo":
-            import arldm_datasets.pororo as data
+            import my_datasets.pororo as data
         elif self.args.dataset == 'flintstones':
-            import arldm_datasets.flintstones as data
+            import my_datasets.flintstones as data
         elif self.args.dataset == 'vistsis':
-            import arldm_datasets.vistsis as data
+            import my_datasets.vistsis as data
         elif self.args.dataset == 'vistdii':
-            import arldm_datasets.vistdii as data
+            import my_datasets.vistdii as data
         else:
             raise ValueError("Unknown dataset: {}".format(self.args.dataset))
         if stage == "fit":
@@ -65,7 +58,6 @@ class LightningDataset(pl.LightningDataModule):
 
     def val_dataloader(self):
         return DataLoader(self.val_data, batch_size=self.args.batch_size, shuffle=False, **self.kwargs)
-
 
     def test_dataloader(self):
         return DataLoader(self.test_data, batch_size=self.args.batch_size, shuffle=False, **self.kwargs)
@@ -127,11 +119,7 @@ class ARLDM(pl.LightningModule):
         self.register_buffer('blip_image_null_token', blip_image_null_token)
 
         self.text_encoder = CLIPTextModel.from_pretrained('runwayml/stable-diffusion-v1-5',
-        
                                                           subfolder="text_encoder")
-        
-        # len(tokenizer.get_vocab()), 49412, this is a dictionary
-        #self.text_encoder.resize_token_embeddings(len(self.clip_tokenizer.get_vocab()))
         self.text_encoder.resize_token_embeddings(args.get(args.dataset).clip_embedding_tokens)
         # resize_position_embeddings
         old_embeddings = self.text_encoder.text_model.embeddings.position_embedding
@@ -141,8 +129,8 @@ class ARLDM(pl.LightningModule):
         self.text_encoder.max_position_embeddings = self.max_length
         self.text_encoder.text_model.embeddings.position_ids = torch.arange(self.max_length).expand((1, -1))
 
-        self.modal_type_embeddings = bnb.nn.StableEmbedding(2, 768)   # nn.Embedding(2, 768)
-        self.time_embeddings = bnb.nn.StableEmbedding(5, 768)
+        self.modal_type_embeddings = nn.Embedding(2, 768)
+        self.time_embeddings = nn.Embedding(5, 768)
         self.mm_encoder = blip_feature_extractor(
             pretrained='https://storage.googleapis.com/sfr-vision-language-research/BLIP/models/model_large.pth',
             image_size=224, vit='large')
@@ -162,8 +150,6 @@ class ARLDM(pl.LightningModule):
             self.freeze_params(self.mm_encoder.parameters())
             self.unfreeze_params(self.mm_encoder.text_encoder.embeddings.word_embeddings.parameters())
 
-
-        # the token embeddings are unfrozen
         if args.freeze_clip and hasattr(self, "text_encoder"):
             self.freeze_params(self.text_encoder.parameters())
             self.unfreeze_params(self.text_encoder.text_model.embeddings.token_embedding.parameters())
@@ -179,9 +165,7 @@ class ARLDM(pl.LightningModule):
             param.requires_grad = True
 
     def configure_optimizers(self):
-        # optimizer = torch.optim.AdamW(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
-        optimizer = bnb.optim.Adam8bit(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
-        #optimizer = bnb.optim.AdamW8bit(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(self.parameters(), lr=self.args.init_lr, weight_decay=1e-4)
         scheduler = LinearWarmupCosineAnnealingLR(optimizer,
                                                   warmup_epochs=self.args.warmup_epochs * self.steps_per_epoch,
                                                   max_epochs=self.args.max_epochs * self.steps_per_epoch)
@@ -199,16 +183,9 @@ class ARLDM(pl.LightningModule):
             self.text_encoder.eval()
         if self.args.freeze_blip and hasattr(self, "mm_encoder"):
             self.mm_encoder.eval()
-        # images: # test: 5, 3, 218, 218/  train: 5, 3, 512, 512 + normalize
-        # captions, attention_mask = clip_tokenized['input_ids'], clip_tokenized['attention_mask']
-        # captions shape: B * 4 * 79 (79 is the max_length of the clip_tokenizer )
-        # texts: 4 or 5
-
-        images, captions, attention_mask, source_images, source_caption, source_attention_mask, texts = batch
-        # B: batch_size, V: 4 or 5 number of story, S: clip embedding size
+        images, captions, attention_mask, source_images, source_caption, source_attention_mask = batch
         B, V, S = captions.shape
         src_V = V + 1 if self.task == 'continuation' else V
-        # images: B, C, H, W -> B*C, H, W
         images = torch.flatten(images, 0, 1)
         captions = torch.flatten(captions, 0, 1)
         attention_mask = torch.flatten(attention_mask, 0, 1)
@@ -258,8 +235,7 @@ class ARLDM(pl.LightningModule):
         return loss
 
     def sample(self, batch):
-        original_images, captions, attention_mask, source_images, source_caption, source_attention_mask, texts = batch
-
+        original_images, captions, attention_mask, source_images, source_caption, source_attention_mask = batch
         B, V, S = captions.shape
         src_V = V + 1 if self.task == 'continuation' else V
         original_images = torch.flatten(original_images, 0, 1)
@@ -325,8 +301,7 @@ class ARLDM(pl.LightningModule):
             encoder_hidden_states[:, (i + 1 + src_V - V) * S:(i + 2 + src_V - V) * S] = new_embedding
             encoder_hidden_states = torch.cat([uncond_embeddings, encoder_hidden_states])
 
-        return original_images, images, texts
-        # original_images: torch.Size([4, 3, 128, 128]), images 4*PIL.Image, 
+        return original_images, images
 
     def training_step(self, batch, batch_idx):
         loss = self(batch)
@@ -338,28 +313,7 @@ class ARLDM(pl.LightningModule):
         self.log('loss/val_loss', loss, on_step=False, on_epoch=True, sync_dist=True, prog_bar=True)
 
     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-        original_images, images, texts = self.sample(batch)
-
-        batch_dir = os.path.join(self.args.sample_output_dir, 'story_{:05d}'.format(batch_idx))
-        if not os.path.exists(batch_dir):
-            os.makedirs(batch_dir)
-
-        tensor_to_pil = transforms.ToPILImage()
-
-        for i, or_image in enumerate(original_images):
-            tensor_to_pil(or_image).save(os.path.join(batch_dir, '{:03d}_GroudTruth.png'.format(i)))
-
-        for i, image in enumerate(images):
-            #image.save(os.path.join(args.sample_output_dir, '{:04d}.png'.format(i)))
-            image.save(os.path.join(batch_dir, '{:03d}_Generated.png'.format(i)))
-
-        all_texts = [text[0] for text in texts]
-        all_texts = ("\n").join(all_texts)
-        text_file_name = os.path.join( batch_dir ,f"story_{batch_idx:05d}.txt")
-        with open(text_file_name, "w") as file:
-            file.write(all_texts)
-
-
+        original_images, images = self.sample(batch)
         if self.args.calculate_fid:
             original_images = original_images.cpu().numpy().astype('uint8')
             original_images = [Image.fromarray(im, 'RGB') for im in original_images]
@@ -368,8 +322,7 @@ class ARLDM(pl.LightningModule):
         else:
             ori = None
             gen = None
-
-        return images, original_images,  ori, gen, texts
+        return images, ori, gen
 
     def diffusion(self, encoder_hidden_states, attention_mask, height, width, num_inference_steps, guidance_scale, eta):
         latents = torch.randn((encoder_hidden_states.shape[0] // 2, self.unet.in_channels, height // 8, width // 8),
@@ -459,7 +412,6 @@ def train(args: DictConfig) -> None:
             os.makedirs(args.train_model_file)
 
     logger = TensorBoardLogger(save_dir=run_dir, name='log', default_hp_metric=False)
-    # wandb_logger = WandbLogger(project='my_project', log_model=True)
 
     checkpoint_callback = ModelCheckpoint(
         dirpath=run_dir,
@@ -481,9 +433,8 @@ def train(args: DictConfig) -> None:
         callbacks=callback_list,
         strategy=DDPStrategy(find_unused_parameters=False),
         gradient_clip_val=1.0,
-        # strategy="ddp",
         # enable_progress_bar=True, progress_bar_refresh_rate=1
-        precision=16,  # "16", #"bf16" "mixed"
+        precision= "bf16-mixed"  # "16-mixed", #"bf16-mixed"
     )
 
     
@@ -493,12 +444,6 @@ def train(args: DictConfig) -> None:
 def sample(args: DictConfig) -> None:
     assert args.test_model_file is not None, "test_model_file cannot be None"
     assert args.gpu_ids == 1 or len(args.gpu_ids) == 1, "Only one GPU is supported in test mode"
-
-    if not os.path.exists(args.sample_output_dir):
-        try:
-            os.mkdir(args.sample_output_dir)
-        except:
-            pass
     dataloader = LightningDataset(args)
     dataloader.setup('test')
     model = ARLDM.load_from_checkpoint(args.test_model_file, args=args, strict=False)
@@ -506,37 +451,31 @@ def sample(args: DictConfig) -> None:
     predictor = pl.Trainer(
         accelerator='gpu',
         devices=args.gpu_ids,
-        #strategy="ddp",
+        strategy="ddp",
+        precision="16-mixed",
         # strategy="ddp",
         # precision="16-mixed", #"bf16-mixed"
-        precision=16,
         max_epochs=-1,
         benchmark=True
     )
     predictions = predictor.predict(model, dataloader)
     images = [elem for sublist in predictions for elem in sublist[0]]
-    original_images = [elem for sublist in predictions for elem in sublist[1]]
-    texts = [elem for sublist in predictions for elem in sublist[-1]]
-
-    # the generated step is moved to the predcition_step
-
-    # for i, image in enumerate(images):
-    #     #image.save(os.path.join(args.sample_output_dir, '{:04d}.png'.format(i)))
-    #     image.save(os.path.join(args.sample_output_dir, '{:04d}_{}.png'.format(i, texts[i])))
-
-    # for i, or_image in enumerate(original_images):
-    #     or_image.save(os.path.join(args.sample_output_dir, '{:04d}_GT.png'.format(i)))
+    if not os.path.exists(args.sample_output_dir):
+        try:
+            os.mkdir(args.sample_output_dir)
+        except:
+            pass
+    for i, image in enumerate(images):
+        image.save(os.path.join(args.sample_output_dir, '{:04d}.png'.format(i)))
 
     if args.calculate_fid:
-        ori = np.array([elem for sublist in predictions for elem in sublist[2]])
-        gen = np.array([elem for sublist in predictions for elem in sublist[3]])
+        ori = np.array([elem for sublist in predictions for elem in sublist[1]])
+        gen = np.array([elem for sublist in predictions for elem in sublist[2]])
         fid = calculate_fid_given_features(ori, gen)
         print('FID: {}'.format(fid))
 
 
-#@hydra.main(config_path=".", config_name="config")
-#@hydra.main(config_path="config", config_name="training_config")
-@hydra.main(config_path="config", config_name="inference_config")
+@hydra.main(config_path=".", config_name="config")
 def main(args: DictConfig) -> None:
     print(f"Detected devices number: {torch.cuda.device_count()}")
     pl.seed_everything(args.seed)
@@ -550,5 +489,5 @@ def main(args: DictConfig) -> None:
 
 
 if __name__ == '__main__':
-    # os.environ["NCCL_DEBUG"] = "INFO"
+    os.environ["NCCL_DEBUG"] = "INFO"
     main()

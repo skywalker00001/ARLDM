@@ -85,6 +85,7 @@ class StoryDataset(Dataset):
             truncation=False,
             return_tensors="pt",
         )
+        # cpation.shape: 4, 77, 77 is the max_length
         captions, attention_mask = clip_tokenized['input_ids'], clip_tokenized['attention_mask']
 
         blip_tokenized = self.blip_tokenizer(

@@ -13,7 +13,7 @@
 
 /testing_codes
 
-/blip_demo
+
 
 /__pycache__
 
@@ -33,6 +33,9 @@ main.log
 
 *.log
 
+*.txt
+
+*.png
 
 
 #*.png

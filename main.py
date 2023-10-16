@@ -238,6 +238,7 @@ class ARLDM(pl.LightningModule):
         source_embeddings = source_embeddings.repeat_interleave(V, dim=0) # B*V, 5*77, 768
         caption_embeddings[classifier_free_idx] = \
             self.text_encoder(self.clip_text_null_token).last_hidden_state[0]   # torch.Size([4, 91, 768])
+        # source_embeddings: #torch.Size([4, 455, 768])
         source_embeddings[classifier_free_idx] = \
             self.mm_encoder(self.blip_image_null_token, self.blip_text_null_token, attention_mask=None,
                             mode='multimodal')[0].repeat(src_V, 1)   #torch.Size([4, 455, 768]), (.repeat means 91 * 5)
@@ -358,12 +359,13 @@ class ARLDM(pl.LightningModule):
         noise = torch.randn(latents.shape, device=self.device)
         bsz = latents.shape[0] # bsz: 4
         timesteps = torch.randint(0, self.noise_scheduler.num_train_timesteps, (bsz,), device=self.device).long() # self.noise_scheduler.num_train_timesteps: 1000
-        noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps) # noisy_latents: torch.Size([4, 4, 64, 64])
+        noisy_latents = self.noise_scheduler.add_noise(latents, noise, timesteps) # noisy_latents: torch.Size([4,4, 64, 64])
 
         noise_pred = self.unet(noisy_latents, timesteps, encoder_hidden_states, attention_mask).sample
         loss = F.mse_loss(noise_pred, noise, reduction="none").mean([1, 2, 3]).mean()
 
         # self.unet.down_blocks[0].resnets[0].conv1.weight.data.requires_grad
+        #torch.cuda.empty_cache()
         return loss
 
     def sample(self, batch):
@@ -478,12 +480,18 @@ class ARLDM(pl.LightningModule):
 
         # interpolate to 512*512, the same size as the output of the diffusion model
         resized_original_images = transforms.Resize([512, 512])(original_images)
+
+        ori_gen_save_path = os.path.join(batch_dir, 'ori_gen.png')
+        #save_ori_gen_images(tensor_to_pil(resized_original_images), images, ori_gen_save_path)
+        
         for i, or_image in enumerate(resized_original_images):
             tensor_to_pil(or_image).save(os.path.join(batch_dir, '{:03d}_GroudTruth.png'.format(i)))
 
         for i, image in enumerate(images):
             #image.save(os.path.join(args.sample_output_dir, '{:04d}.png'.format(i)))
             image.save(os.path.join(batch_dir, '{:03d}_Generated.png'.format(i)))
+
+        
 
         all_texts = [text[0] for text in texts]
         all_texts = ("\n").join(all_texts)
@@ -574,6 +582,31 @@ class ARLDM(pl.LightningModule):
 
         return pil_images
 
+    @staticmethod
+    def image_grid(imgs, rows, cols):
+        assert len(imgs) == rows*cols
+
+        w, h = imgs[0].size
+        grid = Image.new('RGB', size=(cols*w, rows*h))
+        grid_w, grid_h = grid.size
+        
+        for i, img in enumerate(imgs):
+            grid.paste(img, box=(i%cols*w, i//cols*h))
+        return grid
+    
+    @staticmethod
+    def save_ori_gen_images(ori, gen, save_path: str):
+        None
+    # ori: list of Image.
+    # gen: list of Image.
+        #assert 
+        # ori = ori.resize((256, 256))
+        # gen = gen.resize((256, 256))
+        # grid = Diffusion.image_grid([ori, gen], 1, 2)
+        # grid.save(save_path)
+
+
+
     def inception_feature(self, images):
         # transforms.ToTensor()(images[0]) (3, 3, 128)
         images = torch.stack([self.fid_augment(image) for image in images])
@@ -663,6 +696,7 @@ def sample(args: DictConfig) -> None:
         max_epochs=-1,
         benchmark=True
     )
+
     predictions = predictor.predict(model, dataloader) # return images, original_images,  ori, gen, texts
     images = [elem for sublist in predictions for elem in sublist[0]]
     original_images = [elem for sublist in predictions for elem in sublist[1]]
@@ -683,6 +717,9 @@ def sample(args: DictConfig) -> None:
         fid = calculate_fid_given_features(ori, gen)
         print('FID: {}'.format(fid))
 
+    text_file_name = os.path.join(args.sample_output_dir ,"FID_score.txt")
+    with open(text_file_name, "w") as file:
+        file.write('FID: {}'.format(fid))
 
 #@hydra.main(config_path=".", config_name="config")
 # @hydra.main(config_path="config", config_name="training_config")

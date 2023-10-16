@@ -17,6 +17,8 @@ clip_tokenized = clip_tokenizer(
     truncation=False,
     return_tensors="pt",
 )
+
+#clip_tokenized["input_ids"].shape: 4, 77
 # clip_text_model.text_model.embeddings.token_embedding(clip_tokenized["input_ids"]) : torch.Size([4, 77, 768])
 # clip_text_model.text_model.embeddings(clip_tokenized["input_ids"]).shape: torch.Size([4, 77, 768])
 # clip_text_model_output.hidden_states[0].shape: torch.Size([4, 77, 768])
@@ -38,6 +40,7 @@ with torch.inference_mode():
     clip_text_model_output = clip_text_model(output_hidden_states=True, **clip_tokenized)
     # clip_text_model_output.last_hidden_state.shape: torch.Size([4, 77, 768])
     None
+
 
 None
 

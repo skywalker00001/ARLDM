@@ -1,12 +1,13 @@
 # device
 mode: train # train  # train sample
-gpu_ids: [2, 3] #[0, 1, 2, 3] # [2, 3] #[ 0, 1, 2, 3 ]  # gpu ids
+gpu_ids: [3] #[0, 1, 2, 3] # [2, 3] #[ 0, 1, 2, 3 ]  # gpu ids
 batch_size: 1   # 1  # batch size each item denotes one story
 num_workers: 4  # number of workers
 num_cpu_cores: -1  # number of cpu cores
 seed: 42 # 0  # random seed
 ckpt_dir: /home/houyi/projects/ARLDM/ckpts # checkpoint directory
-run_name: flintstones_ful_02 # proro_1_10      # your_run_name # name for this run
+# run_name: flintstones_ful_02 # proro_1_10      # your_run_name # name for this run
+run_name: flintstones_test_01 # proro_1_10 
 
 # task
 dataset: flintstones # pororo  # pororo flintstones vistsis vistdii
